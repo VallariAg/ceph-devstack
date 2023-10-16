@@ -2,7 +2,7 @@ containers:
   postgres:
     image: "quay.io/ceph-infra/teuthology-postgresql:latest"
   paddles:
-    image: "quay.io/ceph-infra/paddles:latest"
+    image: "quay.io/ceph-infra/paddles:gunicorn_logs"
   beanstalk:
     image: "quay.io/ceph-infra/teuthology-beanstalkd:latest"
   archive:
