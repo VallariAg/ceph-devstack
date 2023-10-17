@@ -229,7 +229,7 @@ class TestNode(Container):
 
     def __init__(self, name: str = ""):
         super().__init__(name=name)
-        self.loop_index = 0
+        self.loop_index = 20
         self.loop_img_name = self.name
         if "_" in self.name:
             self.loop_index = int(self.name.split("_")[-1])
