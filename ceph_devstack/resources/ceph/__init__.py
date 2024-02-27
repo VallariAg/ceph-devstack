@@ -18,6 +18,7 @@ from ceph_devstack.resources.ceph.containers import (
     Teuthology,
     Archive,
 )
+from ceph_devstack.requirements import Requirement, FixableRequirement
 
 
 class SSHKeyPair(Secret):
@@ -77,6 +78,81 @@ class CephDevStackNetwork(Network):
     _name = "ceph-devstack"
 
 
+class HasSudo(Requirement):
+    check_cmd = ["sudo", "true"]
+    suggest_msg = "sudo access is required"
+
+
+class LoopControlDeviceExists(FixableRequirement):
+    device = "/dev/loop-control"
+    check_cmd = ["test", "-e", device]
+    suggest_msg = f"{device} does not exist"
+    fix_cmd = ["sudo", "modprobe", "loop"]
+
+
+class LoopControlDeviceWriteable(FixableRequirement):
+    device = "/dev/loop-control"
+    check_cmd = ["test", "-w", device]
+    suggest_msg = f"Cannot write to {device}"
+
+    async def check(self):
+        if not (result := await super().check()):
+            group = (
+                self.host.run(["stat", "--printf", "%G", self.device])
+                .communicate()[0]
+                .decode()
+            )
+            user = self.host.run(["whoami"]).communicate()[0].strip().decode()
+            if self.host.type == "local":
+                self.fix_cmd = ["sudo", "usermod", "-a", "-G", group, user]
+            else:
+                self.fix_cmd = ["sudo", "chgrp", user, self.device]
+            self.suggest_msg = f"Cannot write to {self.device}"
+        return result
+
+    async def suggest(self):
+        await super().suggest()
+        if self.host.type == "local":
+            logger.warning(
+                "Note that group modifications require a logout to take effect."
+            )
+
+
+class SELinuxModule(FixableRequirement):
+    fix_cmd = [
+        "(sudo",
+        "dnf",
+        "install",
+        "policycoreutils-devel",
+        "selinux-policy-devel",
+        "&&",
+        "cd",
+        str(PROJECT_ROOT),
+        "&&",
+        "make",
+        "-f",
+        "/usr/share/selinux/devel/Makefile",
+        "ceph_devstack.pp",
+        "&&",
+        "sudo",
+        "semodule",
+        "-i",
+        "ceph_devstack.pp)",
+    ]
+    suggest_msg = (
+        "SELinux is in Enforcing mode. To run nested rootless podman "
+        "containers, it is necessary to install ceph-devstack's SELinux "
+        "module"
+    )
+
+    async def check(self):
+        proc = await self.host.arun(["sudo", "semodule", "-l"])
+        assert proc.stdout is not None
+        await proc.wait()
+        out = (await proc.stdout.read()).decode()
+        return "ceph_devstack" in out.split("\n")
+
+
 class CephDevStack:
     networks = [CephDevStackNetwork]
     secrets = [SSHKeyPair]
@@ -105,57 +181,15 @@ class CephDevStack:
     async def check_requirements(self):
         result = True
 
-        if has_sudo := host.run(["sudo", "true"]).returncode == 0:
-            has_sudo = True
-        else:
-            has_sudo = False
-            result = False
-            logger.error("sudo access is required")
-
-        loop_control = "/dev/loop-control"
-        if not host.path_exists(loop_control):
-            result = False
-            logger.error(f"{loop_control} does not exist!")
-        elif host.run(["test", "-w", loop_control]).wait() != 0:
-            result = False
-            group = (
-                host.run(["stat", "--printf", "%G", loop_control])
-                .communicate()[0]
-                .decode()
-            )
-            user = host.run(["whoami"]).communicate()[0].strip().decode()
-            if host.type == "local":
-                logger.error(
-                    f"Cannot write to {loop_control}. "
-                    f"Try: sudo usermod -a -G {group} {user}"
-                )
-                logger.warning(
-                    "Note that group modifications require a logout to take effect."
-                )
-            else:
-                logger.error(
-                    f"Cannot write to {loop_control}. "
-                    f"Try: sudo chgrp {user} {loop_control}"
-                )
+        result = has_sudo = await HasSudo().evaluate()
+        result = result and await LoopControlDeviceExists().evaluate()
+        result = result and await LoopControlDeviceWriteable().evaluate()
 
         # Check for SELinux being enabled and Enforcing; then check for the
         # presence of our module. If necessary, inform the user and instruct
         # them how to build and install.
         if has_sudo and await host.selinux_enforcing():
-            proc = await host.arun(["sudo", "semodule", "-l"])
-            assert proc.stdout is not None
-            await proc.wait()
-            out = (await proc.stdout.read()).decode()
-            if "ceph_devstack" not in out.split("\n"):
-                result = False
-                logger.error(
-                    "SELinux is in Enforcing mode. To run nested rootless podman "
-                    "containers, it is necessary to install ceph-devstack's SELinux "
-                    "module. Try: (sudo dnf install policycoreutils-devel "
-                    f"selinux-policy-devel && cd {PROJECT_ROOT} && make -f "
-                    "/usr/share/selinux/devel/Makefile ceph_devstack.pp && sudo "
-                    "semodule -i ceph_devstack.pp)"
-                )
+            result = result and await SELinuxModule().evaluate()
 
         for name, obj in config["containers"].items():
             if (repo := obj.get("repo")) and not host.path_exists(repo):
