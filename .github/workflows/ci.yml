@@ -14,6 +14,8 @@ jobs:
         include:
           - os: ubuntu-24.04
             python: "3.12"
+    env:
+      TEUTHOLOGY_SUITE_EXTRA_ARGS: "-N 2"
     steps:
       - uses: actions/checkout@v2
       - name: Install packages
@@ -36,18 +38,20 @@ jobs:
         run: ./venv/bin/ceph-devstack -v start
       - name: Wait
         run: ./venv/bin/ceph-devstack wait teuthology
+      - name: Show logs (test shashank/main branch gsoc code - invalid job ID)
+        run: echo "1" | ./venv/bin/ceph-devstack show-log -f
       - name: Show logs (test shashank/main branch gsoc code)
-        run: ./venv/bin/ceph-devstack show-log
+        run: echo "2" | ./venv/bin/ceph-devstack show-log
       - name: Show logs (test shashank/main branch gsoc code - just filenames)
-        run: ./venv/bin/ceph-devstack show-log -f
+        run: echo "2" | ./venv/bin/ceph-devstack show-log -f
       - name: Start (second run)
         run: ./venv/bin/ceph-devstack -v start
       - name: Wait (second run)
         run: ./venv/bin/ceph-devstack wait teuthology
       - name: Show logs (second run - test shashank/main branch gsoc code)
-        run: ./venv/bin/ceph-devstack show-log
+        run: echo "6" | ./venv/bin/ceph-devstack show-log
       - name: Show logs (second run - test shashank/main branch gsoc code - just filenames)
-        run: ./venv/bin/ceph-devstack show-log -f
+        run: echo "6" | ./venv/bin/ceph-devstack show-log -f
       - name: Dump logs
         if: success() || failure()
         run: podman logs -f teuthology
