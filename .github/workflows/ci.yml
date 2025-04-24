@@ -1,8 +1,8 @@
 name: CI
 on:
-  pull_request:
+  push:
     branches:
-      - main
+      - '*'
   workflow_dispatch:
 
 jobs:
@@ -36,6 +36,18 @@ jobs:
         run: ./venv/bin/ceph-devstack -v start
       - name: Wait
         run: ./venv/bin/ceph-devstack wait teuthology
+      - name: Show logs (test shashank/main branch gsoc code)
+        run: ./venv/bin/ceph-devstack show-log
+      - name: Show logs (test shashank/main branch gsoc code - just filenames)
+        run: ./venv/bin/ceph-devstack show-log -f
+      - name: Start (second run)
+        run: ./venv/bin/ceph-devstack -v start
+      - name: Wait (second run)
+        run: ./venv/bin/ceph-devstack wait teuthology
+      - name: Show logs (second run - test shashank/main branch gsoc code)
+        run: ./venv/bin/ceph-devstack show-log
+      - name: Show logs (second run - test shashank/main branch gsoc code - just filenames)
+        run: ./venv/bin/ceph-devstack show-log -f
       - name: Dump logs
         if: success() || failure()
         run: podman logs -f teuthology
